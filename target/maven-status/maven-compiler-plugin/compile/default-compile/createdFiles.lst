@@ -1,0 +1,13 @@
+com\badlogic\pacman\server\GameServer$2.class
+com\badlogic\pacman\server\GameServer$GameServerHandler.class
+com\badlogic\pacman\common\CommandType.class
+com\badlogic\pacman\common\Direction.class
+com\badlogic\pacman\client\GameClient.class
+com\badlogic\pacman\server\GameServer$1.class
+com\badlogic\pacman\client\GameClient$ClientHandler.class
+com\badlogic\pacman\client\GameClient$1.class
+com\badlogic\pacman\client\GameClientLauncher.class
+com\badlogic\pacman\common\Command.class
+com\badlogic\pacman\common\GameState.class
+com\badlogic\pacman\server\GameServer$ClientInfo.class
+com\badlogic\pacman\server\GameServer.class
