@@ -24,20 +24,18 @@ import java.util.Map;
 
 public class GameClient implements ApplicationListener {
     private Texture backgroundTexture;
-
-    // Текстуры для своего Pacman'а
-    private Texture pacmanRight;
-    private Texture pacmanLeft;
-    private Texture pacmanUp;
-    private Texture pacmanDown;
-
-    // Текстуры для чужих Pacman'ов
-    private Texture otherPacmanRight;
-    private Texture otherPacmanLeft;
-    private Texture otherPacmanUp;
-    private Texture otherPacmanDown;
-
     private Texture brickTexture;
+
+    // Массивы текстур для анимации (по 3 кадра для каждого направления)
+    private Texture[] pacmanRightFrames = new Texture[3];
+    private Texture[] pacmanLeftFrames = new Texture[3];
+    private Texture[] pacmanUpFrames = new Texture[3];
+    private Texture[] pacmanDownFrames = new Texture[3];
+
+    private Texture[] otherPacmanRightFrames = new Texture[3];
+    private Texture[] otherPacmanLeftFrames = new Texture[3];
+    private Texture[] otherPacmanUpFrames = new Texture[3];
+    private Texture[] otherPacmanDownFrames = new Texture[3];
 
     private SpriteBatch spriteBatch;
     private FitViewport viewport;
@@ -51,9 +49,16 @@ public class GameClient implements ApplicationListener {
     private Map<String, Boolean> isMoving = new HashMap<>();
     private Map<String, String> playerDirections = new HashMap<>();
 
+    // Для анимации рта
+    private Map<String, Float> animationTime = new HashMap<>();
+    private Map<String, Integer> currentFrame = new HashMap<>();
+
     private String localPlayerId;
     private float tileSize = 1f;
     private float moveDuration = 0.05f;
+
+    // Скорость анимации рта (кадров в секунду)
+    private float animationSpeed = 10f; // 10 кадров в секунду
 
     // Для хранения лабиринта
     private int[][] currentMaze;
@@ -64,20 +69,33 @@ public class GameClient implements ApplicationListener {
     @Override
     public void create() {
         backgroundTexture = new Texture(Gdx.files.internal("assets/background.png"));
-
-        // Загружаем текстуры для своего Pacman'а
-        pacmanRight = new Texture(Gdx.files.internal("assets/pacman(right).png"));
-        pacmanLeft = new Texture(Gdx.files.internal("assets/pacman(left).png"));
-        pacmanUp = new Texture(Gdx.files.internal("assets/pacman(up).png"));
-        pacmanDown = new Texture(Gdx.files.internal("assets/pacman(down).png"));
-
-        // Загружаем текстуры для чужих Pacman'ов (можно использовать те же, но с синим оттенком)
-        otherPacmanRight = new Texture(Gdx.files.internal("assets/pacman(right).png"));
-        otherPacmanLeft = new Texture(Gdx.files.internal("assets/pacman(left).png"));
-        otherPacmanUp = new Texture(Gdx.files.internal("assets/pacman(up).png"));
-        otherPacmanDown = new Texture(Gdx.files.internal("assets/pacman(down).png"));
-
         brickTexture = new Texture(Gdx.files.internal("assets/brick.png"));
+
+        // Загружаем 3 кадра анимации для своего Pacman'а (вправо)
+        pacmanRightFrames[0] = new Texture(Gdx.files.internal("assets/pacman_right_1.png")); // Рот закрыт
+        pacmanRightFrames[1] = new Texture(Gdx.files.internal("assets/pacman_right_2.png")); // Рот полуоткрыт
+        pacmanRightFrames[2] = new Texture(Gdx.files.internal("assets/pacman_right_3.png")); // Рот полностью открыт
+
+        // Для левого направления (можно создать отраженные текстуры или загрузить отдельные)
+        pacmanLeftFrames[0] = new Texture(Gdx.files.internal("assets/pacman_left_1.png"));
+        pacmanLeftFrames[1] = new Texture(Gdx.files.internal("assets/pacman_left_2.png"));
+        pacmanLeftFrames[2] = new Texture(Gdx.files.internal("assets/pacman_left_3.png"));
+
+        // Для верхнего направления
+        pacmanUpFrames[0] = new Texture(Gdx.files.internal("assets/pacman_up_1.png"));
+        pacmanUpFrames[1] = new Texture(Gdx.files.internal("assets/pacman_up_2.png"));
+        pacmanUpFrames[2] = new Texture(Gdx.files.internal("assets/pacman_up_3.png"));
+
+        // Для нижнего направления
+        pacmanDownFrames[0] = new Texture(Gdx.files.internal("assets/pacman_down_1.png"));
+        pacmanDownFrames[1] = new Texture(Gdx.files.internal("assets/pacman_down_2.png"));
+        pacmanDownFrames[2] = new Texture(Gdx.files.internal("assets/pacman_down_3.png"));
+
+        // Для других игроков (можно использовать те же текстуры или другие)
+        otherPacmanRightFrames = pacmanRightFrames.clone();
+        otherPacmanLeftFrames = pacmanLeftFrames.clone();
+        otherPacmanUpFrames = pacmanUpFrames.clone();
+        otherPacmanDownFrames = pacmanDownFrames.clone();
 
         spriteBatch = new SpriteBatch();
         viewport = new FitViewport(23, 22);
@@ -127,11 +145,11 @@ public class GameClient implements ApplicationListener {
                 if (!playerSprites.containsKey(playerId)) {
                     // Новый игрок
                     boolean isLocal = playerId.equals(localPlayerId);
-                    Texture startTexture = getTextureForDirection(newDirection, isLocal);
+                    Texture startTexture = getTextureForDirection(newDirection, isLocal, 0);
                     Sprite sprite = new Sprite(startTexture);
 
                     if (!isLocal) {
-                        sprite.setColor(Color.BLUE); // Другие игроки синие
+                        sprite.setColor(Color.BLUE);
                     }
 
                     sprite.setSize(tileSize, tileSize);
@@ -139,6 +157,8 @@ public class GameClient implements ApplicationListener {
 
                     playerSprites.put(playerId, sprite);
                     playerDirections.put(playerId, newDirection);
+                    animationTime.put(playerId, 0f);
+                    currentFrame.put(playerId, 0);
                     startX.put(playerId, newTargetX);
                     startY.put(playerId, newTargetY);
                     targetX.put(playerId, newTargetX);
@@ -152,12 +172,14 @@ public class GameClient implements ApplicationListener {
 
                     boolean isLocal = playerId.equals(localPlayerId);
 
-                    // Обновляем текстуру если направление изменилось
+                    // Обновляем направление если изменилось
                     String oldDirection = playerDirections.get(playerId);
                     if (!newDirection.equals(oldDirection)) {
-                        Texture newTexture = getTextureForDirection(newDirection, isLocal);
+                        Texture newTexture = getTextureForDirection(newDirection, isLocal, 0);
                         sprite.setTexture(newTexture);
                         playerDirections.put(playerId, newDirection);
+                        currentFrame.put(playerId, 0);
+                        animationTime.put(playerId, 0f);
                     }
 
                     if (Math.abs(newTargetX - currentX) > 0.01f || Math.abs(newTargetY - currentY) > 0.01f) {
@@ -174,6 +196,8 @@ public class GameClient implements ApplicationListener {
             // Удаляем игроков, которые вышли
             playerSprites.keySet().retainAll(gameState.getPlayers().keySet());
             playerDirections.keySet().retainAll(gameState.getPlayers().keySet());
+            animationTime.keySet().retainAll(gameState.getPlayers().keySet());
+            currentFrame.keySet().retainAll(gameState.getPlayers().keySet());
             startX.keySet().retainAll(gameState.getPlayers().keySet());
             startY.keySet().retainAll(gameState.getPlayers().keySet());
             targetX.keySet().retainAll(gameState.getPlayers().keySet());
@@ -189,23 +213,52 @@ public class GameClient implements ApplicationListener {
         }
     }
 
-    // Метод для получения текстуры в зависимости от направления
-    private Texture getTextureForDirection(String direction, boolean isLocal) {
+    // Метод для получения текстуры кадра анимации
+    private Texture getTextureForDirection(String direction, boolean isLocal, int frameIndex) {
+        Texture[] frames;
+
         if (isLocal) {
             switch (direction) {
-                case "RIGHT": return pacmanRight;
-                case "LEFT": return pacmanLeft;
-                case "UP": return pacmanUp;
-                case "DOWN": return pacmanDown;
-                default: return pacmanRight;
+                case "RIGHT": frames = pacmanRightFrames; break;
+                case "LEFT": frames = pacmanLeftFrames; break;
+                case "UP": frames = pacmanUpFrames; break;
+                case "DOWN": frames = pacmanDownFrames; break;
+                default: frames = pacmanRightFrames;
             }
         } else {
             switch (direction) {
-                case "RIGHT": return otherPacmanRight;
-                case "LEFT": return otherPacmanLeft;
-                case "UP": return otherPacmanUp;
-                case "DOWN": return otherPacmanDown;
-                default: return otherPacmanRight;
+                case "RIGHT": frames = otherPacmanRightFrames; break;
+                case "LEFT": frames = otherPacmanLeftFrames; break;
+                case "UP": frames = otherPacmanUpFrames; break;
+                case "DOWN": frames = otherPacmanDownFrames; break;
+                default: frames = otherPacmanRightFrames;
+            }
+        }
+
+        return frames[frameIndex % frames.length];
+    }
+
+    // Обновление анимации для всех игроков
+    private void updateAnimations(float delta) {
+        for (String playerId : playerSprites.keySet()) {
+            boolean isLocal = playerId.equals(localPlayerId);
+            String direction = playerDirections.get(playerId);
+            Sprite sprite = playerSprites.get(playerId);
+
+            if (direction != null) {
+                // Обновляем время анимации
+                float time = animationTime.getOrDefault(playerId, 0f) + delta;
+                animationTime.put(playerId, time);
+
+                // Меняем кадр в зависимости от скорости анимации
+                int frame = (int)(time * animationSpeed) % 3;
+                int current = currentFrame.getOrDefault(playerId, 0);
+
+                if (frame != current) {
+                    Texture newTexture = getTextureForDirection(direction, isLocal, frame);
+                    sprite.setTexture(newTexture);
+                    currentFrame.put(playerId, frame);
+                }
             }
         }
     }
@@ -255,6 +308,10 @@ public class GameClient implements ApplicationListener {
     private void update() {
         float delta = Gdx.graphics.getDeltaTime();
 
+        // Обновляем анимацию рта
+        updateAnimations(delta);
+
+        // Обновляем движение
         for (Map.Entry<String, Sprite> entry : playerSprites.entrySet()) {
             String playerId = entry.getKey();
             Sprite sprite = entry.getValue();
@@ -333,20 +390,14 @@ public class GameClient implements ApplicationListener {
         }
 
         backgroundTexture.dispose();
+        brickTexture.dispose();
 
         // Свои текстуры
-        pacmanRight.dispose();
-        pacmanLeft.dispose();
-        pacmanUp.dispose();
-        pacmanDown.dispose();
+        for (Texture tex : pacmanRightFrames) tex.dispose();
+        for (Texture tex : pacmanLeftFrames) tex.dispose();
+        for (Texture tex : pacmanUpFrames) tex.dispose();
+        for (Texture tex : pacmanDownFrames) tex.dispose();
 
-        // Чужие текстуры
-        otherPacmanRight.dispose();
-        otherPacmanLeft.dispose();
-        otherPacmanUp.dispose();
-        otherPacmanDown.dispose();
-
-        brickTexture.dispose();
         spriteBatch.dispose();
     }
 }
