@@ -10,13 +10,18 @@ import io.netty.handler.codec.serialization.ClassResolvers;
 import io.netty.handler.codec.serialization.ObjectDecoder;
 import io.netty.handler.codec.serialization.ObjectEncoder;
 
-import java.util.LinkedList;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class GameServer {
     private final int port;
-    private final ConcurrentHashMap<Channel, ClientInfo> clients = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ClientInfo> clients = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Channel, String> channelToId = new ConcurrentHashMap<>();
+    private ScheduledExecutorService gameLoop;
+    private int nextPlayerId = 1;
 
     public GameServer(int port) {
         this.port = port;
@@ -43,11 +48,53 @@ public class GameServer {
                     .childOption(ChannelOption.SO_KEEPALIVE, true);
 
             System.out.println("Game server started on port " + port);
+
+            // Запускаем глобальный игровой цикл
+            startGameLoop();
+
             ChannelFuture future = bootstrap.bind(port).sync();
             future.channel().closeFuture().sync();
         } finally {
+            if (gameLoop != null) {
+                gameLoop.shutdown();
+            }
             workerGroup.shutdownGracefully();
             bossGroup.shutdownGracefully();
+        }
+    }
+
+    private void startGameLoop() {
+        gameLoop = Executors.newSingleThreadScheduledExecutor();
+        gameLoop.scheduleAtFixedRate(() -> {
+            float delta = 1/60f; // 60 FPS
+
+            // Обновляем всех клиентов
+            for (ClientInfo client : clients.values()) {
+                client.update(delta);
+            }
+
+            // Отправляем состояние всем клиентам
+            broadcastGameState();
+        }, 0, 16, TimeUnit.MILLISECONDS);
+    }
+
+    private void broadcastGameState() {
+        // Собираем состояния всех игроков
+        Map<String, GameState.PlayerState> allPlayers = new HashMap<>();
+        for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
+            ClientInfo client = entry.getValue();
+            allPlayers.put(entry.getKey(),
+                    new GameState.PlayerState(client.getCurrentTileX(), client.getCurrentTileY(), client.getScore()));
+        }
+
+        // Отправляем каждому клиенту
+        for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
+            String playerId = entry.getKey();
+            ClientInfo client = entry.getValue();
+            if (client.getChannel().isActive()) {
+                GameState state = new GameState(allPlayers, client.getMaze(), playerId);
+                client.getChannel().writeAndFlush(state);
+            }
         }
     }
 
@@ -55,13 +102,20 @@ public class GameServer {
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
             System.out.println("Client connected: " + ctx.channel().remoteAddress());
-            ClientInfo clientInfo = new ClientInfo(ctx.channel());
-            clients.put(ctx.channel(), clientInfo);
+            String playerId = "Player" + (nextPlayerId++);
+            ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId);
+            clients.put(playerId, clientInfo);
+            channelToId.put(ctx.channel(), playerId);
+
+            System.out.println("Assigned ID: " + playerId + ", Total players: " + clients.size());
         }
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, Command command) {
-            ClientInfo clientInfo = clients.get(ctx.channel());
+            String playerId = channelToId.get(ctx.channel());
+            if (playerId == null) return;
+
+            ClientInfo clientInfo = clients.get(playerId);
             if (clientInfo == null) return;
 
             switch (command.getType()) {
@@ -87,8 +141,11 @@ public class GameServer {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) {
-            System.out.println("Client disconnected: " + ctx.channel().remoteAddress());
-            clients.remove(ctx.channel());
+            String playerId = channelToId.remove(ctx.channel());
+            if (playerId != null) {
+                clients.remove(playerId);
+                System.out.println("Client disconnected: " + playerId + ", Total players: " + clients.size());
+            }
         }
 
         @Override
@@ -100,21 +157,23 @@ public class GameServer {
 
     private static class ClientInfo {
         private Channel channel;
+        private String playerId;
         private int[][] maze;
         private int currentTileX, currentTileY;
         private int targetTileX, targetTileY;
         private float moveTime;
-        private float moveDuration = 0.2f;
+        private float moveDuration = 0.15f; // Уменьшил для большей скорости (было 0.2f)
         private boolean isMoving;
         private Queue<int[]> moveQueue;
         private int[] currentMoveCommand;
         private boolean isBouncingMode;
         private int bounceDirection;
         private boolean rightPressed, leftPressed, upPressed, downPressed;
-        private long lastUpdateTime;
+        private int score;
 
-        public ClientInfo(Channel channel) {
+        public ClientInfo(Channel channel, String playerId) {
             this.channel = channel;
+            this.playerId = playerId;
             initializeMaze();
             this.currentTileX = 1;
             this.currentTileY = 1;
@@ -125,13 +184,7 @@ public class GameServer {
             this.moveQueue = new LinkedList<>();
             this.isBouncingMode = false;
             this.bounceDirection = 1;
-            this.rightPressed = false;
-            this.leftPressed = false;
-            this.upPressed = false;
-            this.downPressed = false;
-            this.lastUpdateTime = System.currentTimeMillis();
-
-            startUpdateThread();
+            this.score = 0;
         }
 
         private void initializeMaze() {
@@ -161,28 +214,11 @@ public class GameServer {
             };
         }
 
-        private void startUpdateThread() {
-            Thread updateThread = new Thread(() -> {
-                while (channel.isActive()) {
-                    long currentTime = System.currentTimeMillis();
-                    float delta = (currentTime - lastUpdateTime) / 1000.0f;
-                    lastUpdateTime = currentTime;
-
-                    if (delta > 0.033f) delta = 0.033f;
-
-                    update(delta);
-                    sendGameState();
-
-                    try {
-                        Thread.sleep(16);
-                    } catch (InterruptedException e) {
-                        break;
-                    }
-                }
-            });
-            updateThread.setDaemon(true);
-            updateThread.start();
-        }
+        public Channel getChannel() { return channel; }
+        public int getCurrentTileX() { return currentTileX; }
+        public int getCurrentTileY() { return currentTileY; }
+        public int[][] getMaze() { return maze; }
+        public int getScore() { return score; }
 
         public void handleSingleDirection(Direction direction) {
             if (isMoving) return;
@@ -313,7 +349,7 @@ public class GameServer {
             isMoving = false;
             isBouncingMode = false;
             bounceDirection = 1;
-            System.out.println("Player respawned at (1,1)");
+            System.out.println(playerId + " respawned at (1,1)");
         }
 
         private void addMoveCommand(int x, int y) {
@@ -386,19 +422,6 @@ public class GameServer {
                 }
             }
             startNextMove();
-        }
-
-        private void sendGameState() {
-            if (channel != null && channel.isActive()) {
-                GameState state = new GameState(
-                        currentTileX,
-                        currentTileY,
-                        maze,
-                        true,
-                        0
-                );
-                channel.writeAndFlush(state);
-            }
         }
     }
 

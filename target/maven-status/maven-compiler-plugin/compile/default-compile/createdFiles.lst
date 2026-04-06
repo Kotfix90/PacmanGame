@@ -2,6 +2,7 @@ com\badlogic\pacman\server\GameServer$2.class
 com\badlogic\pacman\server\GameServer$GameServerHandler.class
 com\badlogic\pacman\common\CommandType.class
 com\badlogic\pacman\common\Direction.class
+com\badlogic\pacman\common\GameState$PlayerState.class
 com\badlogic\pacman\client\GameClient.class
 com\badlogic\pacman\server\GameServer$1.class
 com\badlogic\pacman\client\GameClient$ClientHandler.class

@@ -3,6 +3,7 @@ package com.badlogic.pacman.client;
 import com.badlogic.gdx.ApplicationListener;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.Sprite;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
@@ -18,24 +19,32 @@ import io.netty.handler.codec.serialization.ClassResolvers;
 import io.netty.handler.codec.serialization.ObjectDecoder;
 import io.netty.handler.codec.serialization.ObjectEncoder;
 
+import java.util.HashMap;
+import java.util.Map;
+
 public class GameClient implements ApplicationListener {
     private Texture backgroundTexture;
     private Texture pacmanTexture;
-    private Texture coinTexture;
+    private Texture otherPacmanTexture;
     private Texture brickTexture;
 
     private SpriteBatch spriteBatch;
     private FitViewport viewport;
-    private Sprite pacmanSprite;
 
-    private GameState currentGameState;
+    private Map<String, Sprite> playerSprites = new HashMap<>();
+    private Map<String, Float> targetX = new HashMap<>();
+    private Map<String, Float> targetY = new HashMap<>();
+    private Map<String, Float> startX = new HashMap<>();
+    private Map<String, Float> startY = new HashMap<>();
+    private Map<String, Float> moveTime = new HashMap<>();
+    private Map<String, Boolean> isMoving = new HashMap<>();
+
+    private String localPlayerId;
     private float tileSize = 1f;
+    private float moveDuration = 0.15f;
 
-    private float startX = 0, startY = 0;
-    private float targetX = 0, targetY = 0;
-    private float moveTime = 0f;
-    private float moveDuration = 0.2f;
-    private boolean isMoving = false;
+    // Для хранения лабиринта
+    private int[][] currentMaze;
 
     private Channel channel;
     private EventLoopGroup workerGroup;
@@ -44,15 +53,11 @@ public class GameClient implements ApplicationListener {
     public void create() {
         backgroundTexture = new Texture(Gdx.files.internal("assets/background.png"));
         pacmanTexture = new Texture(Gdx.files.internal("assets/pacman.png"));
-        coinTexture = new Texture(Gdx.files.internal("assets/coin.png"));
+        otherPacmanTexture = new Texture(Gdx.files.internal("assets/pacman.png"));
         brickTexture = new Texture(Gdx.files.internal("assets/brick.png"));
 
         spriteBatch = new SpriteBatch();
         viewport = new FitViewport(23, 22);
-
-        pacmanSprite = new Sprite(pacmanTexture);
-        pacmanSprite.setSize(tileSize, tileSize);
-        pacmanSprite.setPosition(1 * tileSize, 1 * tileSize);
 
         connectToServer();
     }
@@ -85,22 +90,61 @@ public class GameClient implements ApplicationListener {
     private class ClientHandler extends SimpleChannelInboundHandler<GameState> {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, GameState gameState) {
-            currentGameState = gameState;
+            localPlayerId = gameState.getLocalPlayerId();
 
-            if (currentGameState != null) {
-                float newTargetX = currentGameState.getPacmanX() * tileSize;
-                float newTargetY = currentGameState.getPacmanY() * tileSize;
+            // Сохраняем лабиринт
+            currentMaze = gameState.getMaze();
 
-                if (Math.abs(newTargetX - pacmanSprite.getX()) > 0.01f ||
-                        Math.abs(newTargetY - pacmanSprite.getY()) > 0.01f) {
-                    startX = pacmanSprite.getX();
-                    startY = pacmanSprite.getY();
-                    targetX = newTargetX;
-                    targetY = newTargetY;
-                    moveTime = 0;
-                    isMoving = true;
+            // Обновляем спрайты для всех игроков
+            for (Map.Entry<String, GameState.PlayerState> entry : gameState.getPlayers().entrySet()) {
+                String playerId = entry.getKey();
+                GameState.PlayerState state = entry.getValue();
+
+                float newTargetX = state.getX() * tileSize;
+                float newTargetY = state.getY() * tileSize;
+
+                if (!playerSprites.containsKey(playerId)) {
+                    // Новый игрок
+                    Sprite sprite;
+                    if (playerId.equals(localPlayerId)) {
+                        sprite = new Sprite(pacmanTexture);
+                    } else {
+                        sprite = new Sprite(otherPacmanTexture);
+                        sprite.setColor(Color.BLUE); // Другие игроки синие
+                    }
+                    sprite.setSize(tileSize, tileSize);
+                    sprite.setPosition(newTargetX, newTargetY);
+                    playerSprites.put(playerId, sprite);
+                    startX.put(playerId, newTargetX);
+                    startY.put(playerId, newTargetY);
+                    targetX.put(playerId, newTargetX);
+                    targetY.put(playerId, newTargetY);
+                    moveTime.put(playerId, 0f);
+                    isMoving.put(playerId, false);
+                } else {
+                    Sprite sprite = playerSprites.get(playerId);
+                    float currentX = sprite.getX();
+                    float currentY = sprite.getY();
+
+                    if (Math.abs(newTargetX - currentX) > 0.01f || Math.abs(newTargetY - currentY) > 0.01f) {
+                        startX.put(playerId, currentX);
+                        startY.put(playerId, currentY);
+                        targetX.put(playerId, newTargetX);
+                        targetY.put(playerId, newTargetY);
+                        moveTime.put(playerId, 0f);
+                        isMoving.put(playerId, true);
+                    }
                 }
             }
+
+            // Удаляем игроков, которые вышли
+            playerSprites.keySet().retainAll(gameState.getPlayers().keySet());
+            startX.keySet().retainAll(gameState.getPlayers().keySet());
+            startY.keySet().retainAll(gameState.getPlayers().keySet());
+            targetX.keySet().retainAll(gameState.getPlayers().keySet());
+            targetY.keySet().retainAll(gameState.getPlayers().keySet());
+            moveTime.keySet().retainAll(gameState.getPlayers().keySet());
+            isMoving.keySet().retainAll(gameState.getPlayers().keySet());
         }
 
         @Override
@@ -153,18 +197,25 @@ public class GameClient implements ApplicationListener {
     }
 
     private void update() {
-        if (isMoving) {
-            float delta = Gdx.graphics.getDeltaTime();
-            moveTime += delta;
+        float delta = Gdx.graphics.getDeltaTime();
 
-            if (moveTime >= moveDuration) {
-                isMoving = false;
-                pacmanSprite.setPosition(targetX, targetY);
-            } else {
-                float alpha = moveTime / moveDuration;
-                float x = Interpolation.linear.apply(startX, targetX, alpha);
-                float y = Interpolation.linear.apply(startY, targetY, alpha);
-                pacmanSprite.setPosition(x, y);
+        for (Map.Entry<String, Sprite> entry : playerSprites.entrySet()) {
+            String playerId = entry.getKey();
+            Sprite sprite = entry.getValue();
+
+            if (isMoving.getOrDefault(playerId, false)) {
+                float time = moveTime.getOrDefault(playerId, 0f) + delta;
+                moveTime.put(playerId, time);
+
+                if (time >= moveDuration) {
+                    isMoving.put(playerId, false);
+                    sprite.setPosition(targetX.get(playerId), targetY.get(playerId));
+                } else {
+                    float alpha = time / moveDuration;
+                    float x = Interpolation.linear.apply(startX.get(playerId), targetX.get(playerId), alpha);
+                    float y = Interpolation.linear.apply(startY.get(playerId), targetY.get(playerId), alpha);
+                    sprite.setPosition(x, y);
+                }
             }
         }
     }
@@ -178,18 +229,22 @@ public class GameClient implements ApplicationListener {
         float worldHeight = viewport.getWorldHeight();
         spriteBatch.draw(backgroundTexture, 0, 0, worldWidth, worldHeight);
 
-        if (currentGameState != null) {
-            int[][] maze = currentGameState.getMaze();
-            for (int row = 0; row < maze.length; row++) {
-                for (int col = 0; col < maze[row].length; col++) {
-                    if (maze[row][col] == 1) {
+        // Отрисовка лабиринта
+        if (currentMaze != null) {
+            for (int row = 0; row < currentMaze.length; row++) {
+                for (int col = 0; col < currentMaze[row].length; col++) {
+                    if (currentMaze[row][col] == 1) {
                         spriteBatch.draw(brickTexture, col * tileSize, row * tileSize, tileSize, tileSize);
                     }
                 }
             }
         }
 
-        pacmanSprite.draw(spriteBatch);
+        // Отрисовка всех игроков
+        for (Sprite sprite : playerSprites.values()) {
+            sprite.draw(spriteBatch);
+        }
+
         spriteBatch.end();
     }
 
@@ -223,7 +278,7 @@ public class GameClient implements ApplicationListener {
 
         backgroundTexture.dispose();
         pacmanTexture.dispose();
-        coinTexture.dispose();
+        otherPacmanTexture.dispose();
         brickTexture.dispose();
         spriteBatch.dispose();
     }
