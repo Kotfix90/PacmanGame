@@ -24,8 +24,19 @@ import java.util.Map;
 
 public class GameClient implements ApplicationListener {
     private Texture backgroundTexture;
-    private Texture pacmanTexture;
-    private Texture otherPacmanTexture;
+
+    // Текстуры для своего Pacman'а
+    private Texture pacmanRight;
+    private Texture pacmanLeft;
+    private Texture pacmanUp;
+    private Texture pacmanDown;
+
+    // Текстуры для чужих Pacman'ов
+    private Texture otherPacmanRight;
+    private Texture otherPacmanLeft;
+    private Texture otherPacmanUp;
+    private Texture otherPacmanDown;
+
     private Texture brickTexture;
 
     private SpriteBatch spriteBatch;
@@ -38,6 +49,7 @@ public class GameClient implements ApplicationListener {
     private Map<String, Float> startY = new HashMap<>();
     private Map<String, Float> moveTime = new HashMap<>();
     private Map<String, Boolean> isMoving = new HashMap<>();
+    private Map<String, String> playerDirections = new HashMap<>();
 
     private String localPlayerId;
     private float tileSize = 1f;
@@ -52,8 +64,19 @@ public class GameClient implements ApplicationListener {
     @Override
     public void create() {
         backgroundTexture = new Texture(Gdx.files.internal("assets/background.png"));
-        pacmanTexture = new Texture(Gdx.files.internal("assets/pacman.png"));
-        otherPacmanTexture = new Texture(Gdx.files.internal("assets/pacman.png"));
+
+        // Загружаем текстуры для своего Pacman'а
+        pacmanRight = new Texture(Gdx.files.internal("assets/pacman(right).png"));
+        pacmanLeft = new Texture(Gdx.files.internal("assets/pacman(left).png"));
+        pacmanUp = new Texture(Gdx.files.internal("assets/pacman(up).png"));
+        pacmanDown = new Texture(Gdx.files.internal("assets/pacman(down).png"));
+
+        // Загружаем текстуры для чужих Pacman'ов (можно использовать те же, но с синим оттенком)
+        otherPacmanRight = new Texture(Gdx.files.internal("assets/pacman(right).png"));
+        otherPacmanLeft = new Texture(Gdx.files.internal("assets/pacman(left).png"));
+        otherPacmanUp = new Texture(Gdx.files.internal("assets/pacman(up).png"));
+        otherPacmanDown = new Texture(Gdx.files.internal("assets/pacman(down).png"));
+
         brickTexture = new Texture(Gdx.files.internal("assets/brick.png"));
 
         spriteBatch = new SpriteBatch();
@@ -91,30 +114,31 @@ public class GameClient implements ApplicationListener {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, GameState gameState) {
             localPlayerId = gameState.getLocalPlayerId();
-
-            // Сохраняем лабиринт
             currentMaze = gameState.getMaze();
 
-            // Обновляем спрайты для всех игроков
             for (Map.Entry<String, GameState.PlayerState> entry : gameState.getPlayers().entrySet()) {
                 String playerId = entry.getKey();
                 GameState.PlayerState state = entry.getValue();
 
                 float newTargetX = state.getX() * tileSize;
                 float newTargetY = state.getY() * tileSize;
+                String newDirection = state.getDirection();
 
                 if (!playerSprites.containsKey(playerId)) {
                     // Новый игрок
-                    Sprite sprite;
-                    if (playerId.equals(localPlayerId)) {
-                        sprite = new Sprite(pacmanTexture);
-                    } else {
-                        sprite = new Sprite(otherPacmanTexture);
+                    boolean isLocal = playerId.equals(localPlayerId);
+                    Texture startTexture = getTextureForDirection(newDirection, isLocal);
+                    Sprite sprite = new Sprite(startTexture);
+
+                    if (!isLocal) {
                         sprite.setColor(Color.BLUE); // Другие игроки синие
                     }
+
                     sprite.setSize(tileSize, tileSize);
                     sprite.setPosition(newTargetX, newTargetY);
+
                     playerSprites.put(playerId, sprite);
+                    playerDirections.put(playerId, newDirection);
                     startX.put(playerId, newTargetX);
                     startY.put(playerId, newTargetY);
                     targetX.put(playerId, newTargetX);
@@ -125,6 +149,16 @@ public class GameClient implements ApplicationListener {
                     Sprite sprite = playerSprites.get(playerId);
                     float currentX = sprite.getX();
                     float currentY = sprite.getY();
+
+                    boolean isLocal = playerId.equals(localPlayerId);
+
+                    // Обновляем текстуру если направление изменилось
+                    String oldDirection = playerDirections.get(playerId);
+                    if (!newDirection.equals(oldDirection)) {
+                        Texture newTexture = getTextureForDirection(newDirection, isLocal);
+                        sprite.setTexture(newTexture);
+                        playerDirections.put(playerId, newDirection);
+                    }
 
                     if (Math.abs(newTargetX - currentX) > 0.01f || Math.abs(newTargetY - currentY) > 0.01f) {
                         startX.put(playerId, currentX);
@@ -139,6 +173,7 @@ public class GameClient implements ApplicationListener {
 
             // Удаляем игроков, которые вышли
             playerSprites.keySet().retainAll(gameState.getPlayers().keySet());
+            playerDirections.keySet().retainAll(gameState.getPlayers().keySet());
             startX.keySet().retainAll(gameState.getPlayers().keySet());
             startY.keySet().retainAll(gameState.getPlayers().keySet());
             targetX.keySet().retainAll(gameState.getPlayers().keySet());
@@ -151,6 +186,27 @@ public class GameClient implements ApplicationListener {
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
             cause.printStackTrace();
             ctx.close();
+        }
+    }
+
+    // Метод для получения текстуры в зависимости от направления
+    private Texture getTextureForDirection(String direction, boolean isLocal) {
+        if (isLocal) {
+            switch (direction) {
+                case "RIGHT": return pacmanRight;
+                case "LEFT": return pacmanLeft;
+                case "UP": return pacmanUp;
+                case "DOWN": return pacmanDown;
+                default: return pacmanRight;
+            }
+        } else {
+            switch (direction) {
+                case "RIGHT": return otherPacmanRight;
+                case "LEFT": return otherPacmanLeft;
+                case "UP": return otherPacmanUp;
+                case "DOWN": return otherPacmanDown;
+                default: return otherPacmanRight;
+            }
         }
     }
 
@@ -277,8 +333,19 @@ public class GameClient implements ApplicationListener {
         }
 
         backgroundTexture.dispose();
-        pacmanTexture.dispose();
-        otherPacmanTexture.dispose();
+
+        // Свои текстуры
+        pacmanRight.dispose();
+        pacmanLeft.dispose();
+        pacmanUp.dispose();
+        pacmanDown.dispose();
+
+        // Чужие текстуры
+        otherPacmanRight.dispose();
+        otherPacmanLeft.dispose();
+        otherPacmanUp.dispose();
+        otherPacmanDown.dispose();
+
         brickTexture.dispose();
         spriteBatch.dispose();
     }

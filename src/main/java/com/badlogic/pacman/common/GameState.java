@@ -2,7 +2,6 @@ package com.badlogic.pacman.common;
 
 import java.io.Serializable;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class GameState implements Serializable {
     private static final long serialVersionUID = 1L;
@@ -25,15 +24,18 @@ public class GameState implements Serializable {
         private static final long serialVersionUID = 1L;
         private int x, y;
         private int score;
+        private String direction; // ← ДОБАВЛЯЕМ НАПРАВЛЕНИЕ
 
-        public PlayerState(int x, int y, int score) {
+        public PlayerState(int x, int y, int score, String direction) {
             this.x = x;
             this.y = y;
             this.score = score;
+            this.direction = direction;
         }
 
         public int getX() { return x; }
         public int getY() { return y; }
         public int getScore() { return score; }
+        public String getDirection() { return direction; } // ← ГЕТТЕР ДЛЯ НАПРАВЛЕНИЯ
     }
 }

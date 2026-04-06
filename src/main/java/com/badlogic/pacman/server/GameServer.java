@@ -66,7 +66,7 @@ public class GameServer {
     private void startGameLoop() {
         gameLoop = Executors.newSingleThreadScheduledExecutor();
         gameLoop.scheduleAtFixedRate(() -> {
-            float delta = 1/100f; // 60 FPS
+            float delta = 1/60f; // 60 FPS
 
             // Обновляем всех клиентов
             for (ClientInfo client : clients.values()) {
@@ -84,7 +84,12 @@ public class GameServer {
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
             ClientInfo client = entry.getValue();
             allPlayers.put(entry.getKey(),
-                    new GameState.PlayerState(client.getCurrentTileX(), client.getCurrentTileY(), client.getScore()));
+                    new GameState.PlayerState(
+                            client.getCurrentTileX(),
+                            client.getCurrentTileY(),
+                            client.getScore(),
+                            client.getCurrentDirection()
+                    ));
         }
 
         // Отправляем каждому клиенту
@@ -162,7 +167,7 @@ public class GameServer {
         private int currentTileX, currentTileY;
         private int targetTileX, targetTileY;
         private float moveTime;
-        private float moveDuration = 0.05f; // Уменьшил для большей скорости (было 0.2f)
+        private float moveDuration = 0.05f;
         private boolean isMoving;
         private Queue<int[]> moveQueue;
         private int[] currentMoveCommand;
@@ -170,6 +175,7 @@ public class GameServer {
         private int bounceDirection;
         private boolean rightPressed, leftPressed, upPressed, downPressed;
         private int score;
+        private String currentDirection = "RIGHT"; // ← ДОБАВЛЕНО ПОЛЕ
 
         public ClientInfo(Channel channel, String playerId) {
             this.channel = channel;
@@ -185,6 +191,7 @@ public class GameServer {
             this.isBouncingMode = false;
             this.bounceDirection = 1;
             this.score = 0;
+            this.currentDirection = "RIGHT";
         }
 
         private void initializeMaze() {
@@ -219,6 +226,7 @@ public class GameServer {
         public int getCurrentTileY() { return currentTileY; }
         public int[][] getMaze() { return maze; }
         public int getScore() { return score; }
+        public String getCurrentDirection() { return currentDirection; }
 
         public void handleSingleDirection(Direction direction) {
             if (isMoving) return;
@@ -349,6 +357,7 @@ public class GameServer {
             isMoving = false;
             isBouncingMode = false;
             bounceDirection = 1;
+            currentDirection = "RIGHT";
             System.out.println(playerId + " respawned at (1,1)");
         }
 
@@ -366,6 +375,17 @@ public class GameServer {
                 targetTileY = currentMoveCommand[1];
                 moveTime = 0;
                 isMoving = true;
+
+                // Определяем направление движения
+                if (targetTileX > currentTileX) {
+                    currentDirection = "RIGHT";
+                } else if (targetTileX < currentTileX) {
+                    currentDirection = "LEFT";
+                } else if (targetTileY > currentTileY) {
+                    currentDirection = "UP";
+                } else if (targetTileY < currentTileY) {
+                    currentDirection = "DOWN";
+                }
             }
         }
 
