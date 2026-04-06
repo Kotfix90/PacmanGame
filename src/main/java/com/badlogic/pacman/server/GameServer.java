@@ -66,7 +66,7 @@ public class GameServer {
     private void startGameLoop() {
         gameLoop = Executors.newSingleThreadScheduledExecutor();
         gameLoop.scheduleAtFixedRate(() -> {
-            float delta = 1/60f; // 60 FPS
+            float delta = 1/100f; // 60 FPS
 
             // Обновляем всех клиентов
             for (ClientInfo client : clients.values()) {
@@ -162,7 +162,7 @@ public class GameServer {
         private int currentTileX, currentTileY;
         private int targetTileX, targetTileY;
         private float moveTime;
-        private float moveDuration = 0.15f; // Уменьшил для большей скорости (было 0.2f)
+        private float moveDuration = 0.05f; // Уменьшил для большей скорости (было 0.2f)
         private boolean isMoving;
         private Queue<int[]> moveQueue;
         private int[] currentMoveCommand;

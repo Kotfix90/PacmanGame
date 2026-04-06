@@ -41,7 +41,7 @@ public class GameClient implements ApplicationListener {
 
     private String localPlayerId;
     private float tileSize = 1f;
-    private float moveDuration = 0.15f;
+    private float moveDuration = 0.05f;
 
     // Для хранения лабиринта
     private int[][] currentMaze;
