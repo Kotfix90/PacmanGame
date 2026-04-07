@@ -1,0 +1,18 @@
+# Создайте .gitignore с нужными правилами
+cat > .gitignore << EOF
+# IDE
+.idea/
+*.iml
+
+# Build
+target/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.log
+EOF
