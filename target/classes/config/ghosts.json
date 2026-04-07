@@ -1,0 +1,16 @@
+{
+  "ghosts": [
+    {
+      "startX": 10,
+      "startY": 10,
+      "speed": 0.08,
+      "color": "RED"
+    },
+    {
+      "startX": 15,
+      "startY": 15,
+      "speed": 0.08,
+      "color": "BLUE"
+    }
+  ]
+}

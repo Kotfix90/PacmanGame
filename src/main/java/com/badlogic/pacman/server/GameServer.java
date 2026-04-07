@@ -1,6 +1,9 @@
 package com.badlogic.pacman.server;
 
 import com.badlogic.pacman.common.*;
+import com.badlogic.pacman.server.config.ConfigLoader;
+import com.badlogic.pacman.server.config.MazeConfig;
+import com.badlogic.pacman.server.config.GhostsConfig;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -26,6 +29,7 @@ public class GameServer {
     private static final int MAX_PLAYERS = 4;
     private List<Coin> coins = new ArrayList<>();
     private List<Ghost> ghosts = new ArrayList<>();
+    private int[][] maze;
 
     private static final float[][] COLOR_PALETTE = {
             {1.0f, 0.0f, 0.0f},  // Красный
@@ -39,8 +43,7 @@ public class GameServer {
     }
 
     public void start() throws Exception {
-        initializeCoins();
-        initializeGhosts();
+        loadConfiguration();
         startGameLoop();
 
         EventLoopGroup bossGroup = new NioEventLoopGroup();
@@ -77,46 +80,18 @@ public class GameServer {
         }
     }
 
-    private void initializeCoins() {
-        int[][] maze = new int[][] {
-                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,1},
-                {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1},
-                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,0,1},
-                {1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,1},
-                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,1,0,1,1,1,1,0,1},
-                {1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1},
-                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-        };
+    private void loadConfiguration() throws Exception {
+        MazeConfig mazeConfig = ConfigLoader.loadMazeConfig();
+        this.maze = mazeConfig.getMaze();
+        this.coins = ConfigLoader.loadCoinsFromConfig(mazeConfig);
+        GhostsConfig ghostsConfig = ConfigLoader.loadGhostsConfig();
+        this.ghosts = ConfigLoader.loadGhostsFromConfig(ghostsConfig);
 
-        for (int y = 0; y < maze.length; y++) {
-            for (int x = 0; x < maze[y].length; x++) {
-                if (maze[y][x] == 0) {
-                    coins.add(new Coin(x, y));
-                }
-            }
-        }
-        System.out.println("Initialized " + coins.size() + " coins.");
-    }
-
-    private void initializeGhosts() {
-        ghosts.add(new Ghost(10, 10, 0.08));
-        ghosts.add(new Ghost(15, 15, 0.08));
-        System.out.println("Initialized " + ghosts.size() + " ghosts.");
+        System.out.println("=== Configuration Summary ===");
+        System.out.println("Maze size: " + maze.length + "x" + maze[0].length);
+        System.out.println("Total coins: " + coins.size());
+        System.out.println("Total ghosts: " + ghosts.size());
+        System.out.println("==============================");
     }
 
     private void startGameLoop() {
@@ -128,15 +103,20 @@ public class GameServer {
                     return;
                 }
 
-                float delta = 1/60f;
+                float delta = 1.0f / 60.0f;
 
+                // Обновляем состояние призраков с учетом всех игроков
+                updateGhostsWithChasing(delta);
+
+                // Двигаем призраков
                 for (Ghost ghost : ghosts) {
-                    int[][] maze = clients.values().iterator().next().getMaze();
                     ghost.move(maze);
                 }
 
+                // Обновляем всех игроков
                 for (ClientInfo client : clients.values()) {
                     client.update(delta);
+                    client.checkGhostCollision();
                 }
 
                 broadcastGameState();
@@ -145,6 +125,37 @@ public class GameServer {
                 e.printStackTrace();
             }
         }, 0, 16, TimeUnit.MILLISECONDS);
+    }
+
+    private void updateGhostsWithChasing(float deltaTime) {
+        for (Ghost ghost : ghosts) {
+            boolean foundPlayer = false;
+            ClientInfo nearestPlayer = null;
+            double minDistance = Double.MAX_VALUE;
+
+            for (ClientInfo client : clients.values()) {
+                int playerX = client.getCurrentTileX();
+                int playerY = client.getCurrentTileY();
+
+                if (ghost.canSeePlayer(playerX, playerY, maze)) {
+                    foundPlayer = true;
+                    double distance = Math.sqrt(Math.pow(playerX - ghost.getX(), 2) +
+                            Math.pow(playerY - ghost.getY(), 2));
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        nearestPlayer = client;
+                    }
+                }
+            }
+
+            if (foundPlayer && nearestPlayer != null) {
+                ghost.updateChasingState(nearestPlayer.getCurrentTileX(),
+                        nearestPlayer.getCurrentTileY(),
+                        maze, deltaTime);
+            } else {
+                ghost.updateChasingState(-1, -1, maze, deltaTime);
+            }
+        }
     }
 
     private void broadcastGameState() {
@@ -167,13 +178,12 @@ public class GameServer {
                     ));
         }
 
-        // Отправляем состояние всем клиентам
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
             String playerId = entry.getKey();
             ClientInfo client = entry.getValue();
             if (client.getChannel() != null && client.getChannel().isActive()) {
                 GameState state = new GameState(
-                        new HashMap<>(allPlayers), // Копируем, чтобы избежать concurrent modification
+                        new HashMap<>(allPlayers),
                         client.getMaze(),
                         playerId,
                         new ArrayList<>(coins),
@@ -198,7 +208,7 @@ public class GameServer {
 
             float[] assignedColor = assignPlayerColor(playerId);
 
-            ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId, GameServer.this);
+            ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId);
             clients.put(playerId, clientInfo);
             channelToId.put(ctx.channel(), playerId);
             playerColors.put(playerId, assignedColor);
@@ -285,7 +295,6 @@ public class GameServer {
                 playerColors.remove(playerId);
                 System.out.println("Client disconnected: " + playerId + ", Total players: " + clients.size());
 
-                // Отправляем обновленное состояние всем оставшимся игрокам
                 if (!clients.isEmpty()) {
                     broadcastGameState();
                 }
@@ -307,7 +316,6 @@ public class GameServer {
     private class ClientInfo {
         private Channel channel;
         private String playerId;
-        private GameServer server;
         private int[][] maze;
         private int currentTileX, currentTileY;
         private int targetTileX, targetTileY;
@@ -321,11 +329,11 @@ public class GameServer {
         private boolean rightPressed, leftPressed, upPressed, downPressed;
         private int score;
         private String currentDirection = "RIGHT";
+        private boolean isAlive = true;
 
-        public ClientInfo(Channel channel, String playerId, GameServer server) {
+        public ClientInfo(Channel channel, String playerId) {
             this.channel = channel;
             this.playerId = playerId;
-            this.server = server;
             initializeMaze();
             this.currentTileX = 1;
             this.currentTileY = 1;
@@ -340,42 +348,6 @@ public class GameServer {
             this.currentDirection = "RIGHT";
         }
 
-        private boolean isPlayerAt(int x, int y) {
-            for (ClientInfo client : server.clients.values()) {
-                if (client != this && client.currentTileX == x && client.currentTileY == y) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private void initializeMaze() {
-            maze = new int[][] {
-                    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-                    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1},
-                    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,0,1},
-                    {1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,1},
-                    {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,1,0,1,1,1,1,0,1},
-                    {1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1},
-                    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-                    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
-            };
-        }
-
         public Channel getChannel() { return channel; }
         public int getCurrentTileX() { return currentTileX; }
         public int getCurrentTileY() { return currentTileY; }
@@ -383,8 +355,46 @@ public class GameServer {
         public int getScore() { return score; }
         public String getCurrentDirection() { return currentDirection; }
 
+        private void initializeMaze() {
+            this.maze = new int[GameServer.this.maze.length][];
+            for (int i = 0; i < GameServer.this.maze.length; i++) {
+                this.maze[i] = GameServer.this.maze[i].clone();
+            }
+        }
+
+        private boolean isPlayerAt(int x, int y) {
+            for (ClientInfo client : clients.values()) {
+                if (client != this && client.currentTileX == x && client.currentTileY == y && client.isAlive) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void checkCoinCollision(int x, int y) {
+            Iterator<Coin> iterator = coins.iterator();
+            while (iterator.hasNext()) {
+                Coin coin = iterator.next();
+                if (coin.getX() == x && coin.getY() == y) {
+                    iterator.remove();
+                    score++;
+                    System.out.println(playerId + " collected a coin! Score: " + score);
+                }
+            }
+        }
+
+        public void checkGhostCollision() {
+            for (Ghost ghost : ghosts) {
+                if (ghost.getX() == currentTileX && ghost.getY() == currentTileY && isAlive) {
+                    respawn();
+                    System.out.println(playerId + " was caught by a ghost!");
+                    break;
+                }
+            }
+        }
+
         public void handleSingleDirection(Direction direction) {
-            if (isMoving) return;
+            if (isMoving || !isAlive) return;
 
             int newX = currentTileX;
             int newY = currentTileY;
@@ -402,28 +412,9 @@ public class GameServer {
             }
         }
 
-        private void checkCoinCollision(int x, int y) {
-            Iterator<Coin> iterator = server.coins.iterator();
-            while (iterator.hasNext()) {
-                Coin coin = iterator.next();
-                if (coin.getX() == x && coin.getY() == y) {
-                    iterator.remove();
-                    score++;
-                    System.out.println(playerId + " collected a coin! Score: " + score);
-                }
-            }
-        }
-
-        private void checkGhostCollision(int x, int y) {
-            for (Ghost ghost : server.ghosts) {
-                if (ghost.getX() == x && ghost.getY() == y) {
-                    respawn();
-                    System.out.println(playerId + " was caught by a ghost!");
-                }
-            }
-        }
-
         public void handleComplexMove(boolean up, boolean down, boolean left, boolean right) {
+            if (!isAlive) return;
+
             upPressed = up;
             downPressed = down;
             leftPressed = left;
@@ -485,7 +476,7 @@ public class GameServer {
         }
 
         public void handleBounceMode(boolean isHorizontal, boolean isVertical) {
-            if (isMoving) return;
+            if (isMoving || !isAlive) return;
 
             isBouncingMode = true;
 
@@ -534,6 +525,7 @@ public class GameServer {
             isBouncingMode = false;
             bounceDirection = 1;
             currentDirection = "RIGHT";
+            isAlive = true;
             System.out.println(playerId + " respawned at (1,1)");
         }
 
@@ -572,6 +564,8 @@ public class GameServer {
         }
 
         public void update(float delta) {
+            if (!isAlive) return;
+
             if (isMoving) {
                 moveTime += delta;
 
@@ -580,7 +574,6 @@ public class GameServer {
                         currentTileX = targetTileX;
                         currentTileY = targetTileY;
                         checkCoinCollision(currentTileX, currentTileY);
-                        checkGhostCollision(currentTileX, currentTileY);
                     } else {
                         moveQueue.clear();
                     }

@@ -1,6 +1,8 @@
 com\badlogic\pacman\client\MainMenuScreen$1.class
 com\badlogic\pacman\common\Ghost.class
 com\badlogic\pacman\common\Direction.class
+com\badlogic\pacman\server\config\GhostsConfig.class
+com\badlogic\pacman\server\config\MazeConfig.class
 com\badlogic\pacman\server\GameServer$1.class
 com\badlogic\pacman\client\GameClient$ClientHandler.class
 com\badlogic\pacman\client\GameClient$1.class
@@ -13,6 +15,9 @@ com\badlogic\pacman\client\MainMenuScreen.class
 com\badlogic\pacman\client\GameClientLauncher.class
 com\badlogic\pacman\client\PacmanGame.class
 com\badlogic\pacman\client\ServerListScreen$2.class
+com\badlogic\pacman\server\config\GhostsConfig$GhostConfig.class
+com\badlogic\pacman\server\config\ConfigLoader.class
+com\badlogic\pacman\server\config\MazeConfig$CoinPosition.class
 com\badlogic\pacman\server\GameServer$GameServerHandler.class
 com\badlogic\pacman\common\GameState$PlayerState.class
 com\badlogic\pacman\client\GameClient.class

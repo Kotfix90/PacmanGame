@@ -38,6 +38,12 @@
             <classifier>natives-desktop</classifier>
         </dependency>
 
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.15.3</version>
+        </dependency>
+
         <!-- LWJGL3 backend for LibGDX -->
         <dependency>
             <groupId>com.badlogicgames.gdx</groupId>

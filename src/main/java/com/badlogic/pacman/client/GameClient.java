@@ -28,7 +28,8 @@ public class GameClient implements Screen {
     private Texture backgroundTexture;
     private Texture brickTexture;
     private Texture coinTexture;
-    private Texture ghostTexture;
+    private Texture ghostNormalTexture;
+    private Texture ghostChasingTexture;
     private Texture[][] pacmanFrames = new Texture[4][3];
 
     private SpriteBatch spriteBatch;
@@ -72,8 +73,9 @@ public class GameClient implements Screen {
         float startX, startY;
         float moveProgress;
         boolean isMoving;
+        boolean isChasing;
 
-        GhostRenderData(Sprite sprite, float x, float y) {
+        GhostRenderData(Sprite sprite, float x, float y, boolean isChasing) {
             this.sprite = sprite;
             this.targetX = x;
             this.targetY = y;
@@ -81,6 +83,7 @@ public class GameClient implements Screen {
             this.startY = y;
             this.moveProgress = 1;
             this.isMoving = false;
+            this.isChasing = isChasing;
         }
     }
 
@@ -119,7 +122,8 @@ public class GameClient implements Screen {
             backgroundTexture = new Texture(Gdx.files.internal("assets/background.png"));
             brickTexture = new Texture(Gdx.files.internal("assets/brick.png"));
             coinTexture = new Texture(Gdx.files.internal("assets/coin.png"));
-            ghostTexture = new Texture(Gdx.files.internal("assets/ghost.png"));
+            ghostNormalTexture = new Texture(Gdx.files.internal("assets/ghost.png"));
+            ghostChasingTexture = new Texture(Gdx.files.internal("assets/ghost_angry.png"));
 
             pacmanFrames[0][0] = new Texture(Gdx.files.internal("assets/pacman_right_1.png"));
             pacmanFrames[0][1] = new Texture(Gdx.files.internal("assets/pacman_right_2.png"));
@@ -204,7 +208,6 @@ public class GameClient implements Screen {
             }
 
             if (currentMaze != null) {
-                // Обновляем монетки
                 coinSprites.clear();
                 for (Coin coin : lastCoins) {
                     Sprite coinSprite = new Sprite(coinTexture);
@@ -213,10 +216,7 @@ public class GameClient implements Screen {
                     coinSprites.add(coinSprite);
                 }
 
-                // Обновляем приведений
                 updateGhostsFromState(lastGhosts);
-
-                // Обновляем игроков - это автоматически удалит отключившихся
                 updatePlayersFromState(lastPlayers);
             }
         }
@@ -235,16 +235,24 @@ public class GameClient implements Screen {
             float targetGridY = ghost.getY();
             float targetWorldX = targetGridX * tileSize;
             float targetWorldY = targetGridY * tileSize;
+            boolean isChasing = ghost.isChasing();
 
             GhostRenderData info = ghosts.get(id);
 
             if (info == null) {
-                Sprite sprite = new Sprite(ghostTexture);
+                Texture texture = isChasing ? ghostChasingTexture : ghostNormalTexture;
+                Sprite sprite = new Sprite(texture);
                 sprite.setSize(tileSize, tileSize);
                 sprite.setPosition(targetWorldX, targetWorldY);
-                info = new GhostRenderData(sprite, targetWorldX, targetWorldY);
+                info = new GhostRenderData(sprite, targetWorldX, targetWorldY, isChasing);
                 ghosts.put(id, info);
             } else {
+                if (info.isChasing != isChasing) {
+                    Texture newTexture = isChasing ? ghostChasingTexture : ghostNormalTexture;
+                    info.sprite.setTexture(newTexture);
+                    info.isChasing = isChasing;
+                }
+
                 float currentWorldX = info.sprite.getX();
                 float currentWorldY = info.sprite.getY();
 
@@ -262,26 +270,21 @@ public class GameClient implements Screen {
             }
         }
 
-        // Удаляем приведений, которых больше нет
         ghosts.keySet().retainAll(currentGhostIds);
     }
 
     private void updatePlayersFromState(Map<String, GameState.PlayerState> playersState) {
-        // Удаляем игроков, которые отключились
         Set<String> currentPlayerIds = new HashSet<>(playersState.keySet());
         Set<String> playersToRemove = new HashSet<>(players.keySet());
         playersToRemove.removeAll(currentPlayerIds);
 
-        // Удаляем спрайты отключившихся игроков
         for (String playerId : playersToRemove) {
             PlayerRenderData removed = players.remove(playerId);
             if (removed != null && removed.sprite != null) {
                 System.out.println("Removing disconnected player: " + playerId);
-                // Спрайт будет удален сборщиком мусора
             }
         }
 
-        // Обновляем или создаем текущих игроков
         for (Map.Entry<String, GameState.PlayerState> entry : playersState.entrySet()) {
             String playerId = entry.getKey();
             GameState.PlayerState state = entry.getValue();
@@ -493,10 +496,8 @@ public class GameClient implements Screen {
         spriteBatch.setProjectionMatrix(viewport.getCamera().combined);
         spriteBatch.begin();
 
-        // Фон
         spriteBatch.draw(backgroundTexture, 0, 0, viewport.getWorldWidth(), viewport.getWorldHeight());
 
-        // Лабиринт
         if (currentMaze != null) {
             for (int row = 0; row < currentMaze.length; row++) {
                 for (int col = 0; col < currentMaze[row].length; col++) {
@@ -511,17 +512,14 @@ public class GameClient implements Screen {
             }
         }
 
-        // Монетки
         for (Sprite coinSprite : coinSprites) {
             coinSprite.draw(spriteBatch);
         }
 
-        // Приведения
         for (GhostRenderData info : ghosts.values()) {
             info.sprite.draw(spriteBatch);
         }
 
-        // Игроки
         for (PlayerRenderData info : players.values()) {
             info.sprite.draw(spriteBatch);
         }
@@ -552,7 +550,8 @@ public class GameClient implements Screen {
         if (backgroundTexture != null) backgroundTexture.dispose();
         if (brickTexture != null) brickTexture.dispose();
         if (coinTexture != null) coinTexture.dispose();
-        if (ghostTexture != null) ghostTexture.dispose();
+        if (ghostNormalTexture != null) ghostNormalTexture.dispose();
+        if (ghostChasingTexture != null) ghostChasingTexture.dispose();
 
         for (Texture[] frames : pacmanFrames) {
             for (Texture tex : frames) {
@@ -570,7 +569,7 @@ public class GameClient implements Screen {
         if (channel != null && channel.isActive()) {
             sendCommand(new Command(CommandType.DISCONNECT));
             try {
-                Thread.sleep(100); // Даем время отправить команду
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
