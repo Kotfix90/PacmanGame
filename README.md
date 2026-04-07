@@ -1,5 +1,5 @@
 # PacmanGame
-![](reamde_files/PG_gif.gif)  
+![](readme_files/PG_gif.gif)  
 Проект реализует клиент-серверное приложение с помощью фреймворка Netty, библиотеки LibGDX на языке java для игры в pacman на сервере.  
 ---
 ## Описание  
@@ -22,7 +22,7 @@
 - Коллизия между игроками (игроки не могут проходить сквозь друг-друга)
 - Столкновения с призраками отправляет модельку пакмана игрока на точку респауна (по умолчанию в левом нижнем углу карты)
 - Система сбора монет и подсчета очков (вывод кол-ва очков выводится на сервере)  
-![](reamde_files/scoring_coins.png)
+![](readme_files/scoring_coins.png)
   
 ### 2. Клиент (client)
 Состоит из нескольких классов:  
@@ -40,7 +40,7 @@
 - Command.java - передает серверу все необходимые параметры для команд
 - GameState.java - передает состояние игрового мира всем игрокам для синхронизации, выполняя сериализацию
 - Ghost.java - управляет поведением призраков, включая поле зрения, память о позиции игрока и преследование.  
-![](reamde_files/Ghost.gif)
+![](readme_files/Ghost.gif)
 ---
 # Как запустить 
 - Создаем на локальной машине папку (например 'test')
@@ -52,18 +52,18 @@
 - Запускаем сборку с помощью maven, находясь в директории:  
 `mvn compile`  
 Должно появиться сообщение о том, что maven успешно произвел сборку:  
-  ![](reamde_files/sucsses_build.png)
+  ![](readme_files/sucsses_build.png)
 - Запускаем сервер из той же директории командой:  
 `mvn exec:java "-Dexec.mainClass=com.badlogic.pacman.server.GameServer"`  
 При успешном запуске должен быть соответствующий вывод в консоль:  
-![](reamde_files/sucsses_server_starting.png)
+![](readme_files/sucsses_server_starting.png)
 - Запускаем клиент всё из той же директории командой:  
 `mvn exec:java "-Dexec.mainClass=com.badlogic.pacman.client.GameClientLauncher"`  
 Ожидаем открытия главного меню клиента:  
-![](reamde_files/Main_menu.png)
+![](readme_files/Main_menu.png)
 - Нажимаем кнопку "Server List"
 - Выбираем сервер (в данном случаем нам доступен localhost)  
-![](reamde_files/servers_list.png)
+![](readme_files/servers_list.png)
 - Наслаждаемся игрой   
 ---
 # Файлы конфигурации  
