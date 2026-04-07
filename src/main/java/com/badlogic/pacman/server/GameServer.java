@@ -24,8 +24,9 @@ public class GameServer {
     private ScheduledExecutorService gameLoop;
     private int nextPlayerId = 1;
     private static final int MAX_PLAYERS = 4;
+    private List<Coin> coins = new ArrayList<>();
+    private List<Ghost> ghosts = new ArrayList<>();
 
-    // Цвета для игроков (RGB)
     private static final float[][] COLOR_PALETTE = {
             {1.0f, 0.0f, 0.0f},  // Красный
             {0.0f, 0.0f, 1.0f},  // Синий
@@ -38,6 +39,10 @@ public class GameServer {
     }
 
     public void start() throws Exception {
+        initializeCoins();
+        initializeGhosts();
+        startGameLoop();
+
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
 
@@ -59,9 +64,9 @@ public class GameServer {
 
             System.out.println("Game server started on port " + port);
 
-            startGameLoop();
-
             ChannelFuture future = bootstrap.bind(port).sync();
+            System.out.println("Server bound to port, waiting for connections...");
+
             future.channel().closeFuture().sync();
         } finally {
             if (gameLoop != null) {
@@ -72,20 +77,79 @@ public class GameServer {
         }
     }
 
+    private void initializeCoins() {
+        int[][] maze = new int[][] {
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,1,1,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,1},
+                {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1},
+                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,0,1},
+                {1,0,1,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,1,0,1},
+                {1,0,1,0,1,1,1,1,1,0,0,0,0,0,0,1,0,1,1,1,1,0,1},
+                {1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1},
+                {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+                {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+        };
+
+        for (int y = 0; y < maze.length; y++) {
+            for (int x = 0; x < maze[y].length; x++) {
+                if (maze[y][x] == 0) {
+                    coins.add(new Coin(x, y));
+                }
+            }
+        }
+        System.out.println("Initialized " + coins.size() + " coins.");
+    }
+
+    private void initializeGhosts() {
+        ghosts.add(new Ghost(10, 10, 0.08));
+        ghosts.add(new Ghost(15, 15, 0.08));
+        System.out.println("Initialized " + ghosts.size() + " ghosts.");
+    }
+
     private void startGameLoop() {
+        System.out.println("Starting game loop...");
         gameLoop = Executors.newSingleThreadScheduledExecutor();
         gameLoop.scheduleAtFixedRate(() -> {
-            float delta = 1/60f;
+            try {
+                if (clients.isEmpty()) {
+                    return;
+                }
 
-            for (ClientInfo client : clients.values()) {
-                client.update(delta);
+                float delta = 1/60f;
+
+                for (Ghost ghost : ghosts) {
+                    int[][] maze = clients.values().iterator().next().getMaze();
+                    ghost.move(maze);
+                }
+
+                for (ClientInfo client : clients.values()) {
+                    client.update(delta);
+                }
+
+                broadcastGameState();
+            } catch (Exception e) {
+                System.err.println("Error in game loop: " + e.getMessage());
+                e.printStackTrace();
             }
-
-            broadcastGameState();
         }, 0, 16, TimeUnit.MILLISECONDS);
     }
 
     private void broadcastGameState() {
+        if (clients.isEmpty()) return;
+
         Map<String, GameState.PlayerState> allPlayers = new HashMap<>();
 
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
@@ -103,11 +167,18 @@ public class GameServer {
                     ));
         }
 
+        // Отправляем состояние всем клиентам
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
             String playerId = entry.getKey();
             ClientInfo client = entry.getValue();
-            if (client.getChannel().isActive()) {
-                GameState state = new GameState(allPlayers, client.getMaze(), playerId);
+            if (client.getChannel() != null && client.getChannel().isActive()) {
+                GameState state = new GameState(
+                        new HashMap<>(allPlayers), // Копируем, чтобы избежать concurrent modification
+                        client.getMaze(),
+                        playerId,
+                        new ArrayList<>(coins),
+                        new ArrayList<>(ghosts)
+                );
                 client.getChannel().writeAndFlush(state);
             }
         }
@@ -125,7 +196,6 @@ public class GameServer {
             System.out.println("Client connected: " + ctx.channel().remoteAddress());
             String playerId = "Player" + (nextPlayerId++);
 
-            // Назначаем цвет игроку
             float[] assignedColor = assignPlayerColor(playerId);
 
             ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId, GameServer.this);
@@ -136,6 +206,40 @@ public class GameServer {
             System.out.println("Assigned ID: " + playerId +
                     ", Color: RGB(" + assignedColor[0] + "," + assignedColor[1] + "," + assignedColor[2] + ")" +
                     ", Total players: " + clients.size());
+
+            sendInitialGameState(ctx.channel(), playerId);
+        }
+
+        private void sendInitialGameState(Channel channel, String playerId) {
+            Map<String, GameState.PlayerState> allPlayers = new HashMap<>();
+
+            for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
+                String pid = entry.getKey();
+                ClientInfo client = entry.getValue();
+                float[] color = playerColors.get(pid);
+
+                allPlayers.put(pid,
+                        new GameState.PlayerState(
+                                client.getCurrentTileX(),
+                                client.getCurrentTileY(),
+                                client.getScore(),
+                                client.getCurrentDirection(),
+                                color[0], color[1], color[2]
+                        ));
+            }
+
+            ClientInfo client = clients.get(playerId);
+            if (client != null) {
+                GameState state = new GameState(
+                        allPlayers,
+                        client.getMaze(),
+                        playerId,
+                        new ArrayList<>(coins),
+                        new ArrayList<>(ghosts)
+                );
+                channel.writeAndFlush(state);
+                System.out.println("Sent initial game state to " + playerId);
+            }
         }
 
         private float[] assignPlayerColor(String playerId) {
@@ -167,6 +271,7 @@ public class GameServer {
                     clientInfo.respawn();
                     break;
                 case DISCONNECT:
+                    System.out.println("Received DISCONNECT command from " + playerId);
                     ctx.close();
                     break;
             }
@@ -179,12 +284,22 @@ public class GameServer {
                 clients.remove(playerId);
                 playerColors.remove(playerId);
                 System.out.println("Client disconnected: " + playerId + ", Total players: " + clients.size());
+
+                // Отправляем обновленное состояние всем оставшимся игрокам
+                if (!clients.isEmpty()) {
+                    broadcastGameState();
+                }
             }
         }
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            System.err.println("Exception in server handler:");
             cause.printStackTrace();
+            String playerId = channelToId.get(ctx.channel());
+            if (playerId != null) {
+                System.err.println("Error for player: " + playerId);
+            }
             ctx.close();
         }
     }
@@ -284,6 +399,27 @@ public class GameServer {
 
             if (!isWall(newX, newY) && !isPlayerAt(newX, newY)) {
                 addMoveCommand(newX, newY);
+            }
+        }
+
+        private void checkCoinCollision(int x, int y) {
+            Iterator<Coin> iterator = server.coins.iterator();
+            while (iterator.hasNext()) {
+                Coin coin = iterator.next();
+                if (coin.getX() == x && coin.getY() == y) {
+                    iterator.remove();
+                    score++;
+                    System.out.println(playerId + " collected a coin! Score: " + score);
+                }
+            }
+        }
+
+        private void checkGhostCollision(int x, int y) {
+            for (Ghost ghost : server.ghosts) {
+                if (ghost.getX() == x && ghost.getY() == y) {
+                    respawn();
+                    System.out.println(playerId + " was caught by a ghost!");
+                }
             }
         }
 
@@ -443,6 +579,8 @@ public class GameServer {
                     if (!isPlayerAt(targetTileX, targetTileY)) {
                         currentTileX = targetTileX;
                         currentTileY = targetTileY;
+                        checkCoinCollision(currentTileX, currentTileY);
+                        checkGhostCollision(currentTileX, currentTileY);
                     } else {
                         moveQueue.clear();
                     }

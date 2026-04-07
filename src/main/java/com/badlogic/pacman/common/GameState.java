@@ -1,22 +1,29 @@
 package com.badlogic.pacman.common;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.Map;
 
 public class GameState implements Serializable {
     private final Map<String, PlayerState> players;
     private final int[][] maze;
     private final String localPlayerId;
+    private final List<Coin> coins;
+    private final List<Ghost> ghosts;
 
-    public GameState(Map<String, PlayerState> players, int[][] maze, String localPlayerId) {
+    public GameState(Map<String, PlayerState> players, int[][] maze, String localPlayerId, List<Coin> coins, List<Ghost> ghosts) {
         this.players = players;
         this.maze = maze;
         this.localPlayerId = localPlayerId;
+        this.coins = coins;
+        this.ghosts = ghosts;
     }
 
     public Map<String, PlayerState> getPlayers() { return players; }
     public int[][] getMaze() { return maze; }
     public String getLocalPlayerId() { return localPlayerId; }
+    public List<Coin> getCoins() { return coins; }
+    public List<Ghost> getGhosts() { return ghosts; }
 
     public static class PlayerState implements Serializable {
         private final int x, y;

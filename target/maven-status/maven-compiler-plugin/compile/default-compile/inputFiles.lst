@@ -4,7 +4,9 @@ C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacma
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\MainMenuScreen.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\CommandType.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\PacmanGame.java
+C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\Coin.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\GameState.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\GameClient.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\Direction.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\GameClientLauncher.java
+C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\Ghost.java
