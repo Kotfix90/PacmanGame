@@ -1,6 +1,9 @@
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\server\GameServer.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\Command.java
+C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\ServerListScreen.java
+C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\MainMenuScreen.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\CommandType.java
+C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\PacmanGame.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\GameState.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\client\GameClient.java
 C:\Users\Vyacheslave\Desktop\pacmanapp\PG_Netty\src\main\java\com\badlogic\pacman\common\Direction.java

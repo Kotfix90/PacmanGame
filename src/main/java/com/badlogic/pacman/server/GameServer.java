@@ -20,8 +20,18 @@ public class GameServer {
     private final int port;
     private final ConcurrentHashMap<String, ClientInfo> clients = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Channel, String> channelToId = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, float[]> playerColors = new ConcurrentHashMap<>();
     private ScheduledExecutorService gameLoop;
     private int nextPlayerId = 1;
+    private static final int MAX_PLAYERS = 4;
+
+    // Цвета для игроков (RGB)
+    private static final float[][] COLOR_PALETTE = {
+            {1.0f, 0.0f, 0.0f},  // Красный
+            {0.0f, 0.0f, 1.0f},  // Синий
+            {0.0f, 1.0f, 0.0f},  // Зеленый
+            {1.0f, 1.0f, 0.0f},  // Желтый
+    };
 
     public GameServer(int port) {
         this.port = port;
@@ -49,7 +59,6 @@ public class GameServer {
 
             System.out.println("Game server started on port " + port);
 
-            // Запускаем глобальный игровой цикл
             startGameLoop();
 
             ChannelFuture future = bootstrap.bind(port).sync();
@@ -66,33 +75,34 @@ public class GameServer {
     private void startGameLoop() {
         gameLoop = Executors.newSingleThreadScheduledExecutor();
         gameLoop.scheduleAtFixedRate(() -> {
-            float delta = 1/60f; // 60 FPS
+            float delta = 1/60f;
 
-            // Обновляем всех клиентов
             for (ClientInfo client : clients.values()) {
                 client.update(delta);
             }
 
-            // Отправляем состояние всем клиентам
             broadcastGameState();
         }, 0, 16, TimeUnit.MILLISECONDS);
     }
 
     private void broadcastGameState() {
-        // Собираем состояния всех игроков
         Map<String, GameState.PlayerState> allPlayers = new HashMap<>();
+
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
+            String playerId = entry.getKey();
             ClientInfo client = entry.getValue();
-            allPlayers.put(entry.getKey(),
+            float[] color = playerColors.get(playerId);
+
+            allPlayers.put(playerId,
                     new GameState.PlayerState(
                             client.getCurrentTileX(),
                             client.getCurrentTileY(),
                             client.getScore(),
-                            client.getCurrentDirection()
+                            client.getCurrentDirection(),
+                            color[0], color[1], color[2]
                     ));
         }
 
-        // Отправляем каждому клиенту
         for (Map.Entry<String, ClientInfo> entry : clients.entrySet()) {
             String playerId = entry.getKey();
             ClientInfo client = entry.getValue();
@@ -106,13 +116,31 @@ public class GameServer {
     private class GameServerHandler extends SimpleChannelInboundHandler<Command> {
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
+            if (clients.size() >= MAX_PLAYERS) {
+                System.out.println("Server is full. Rejecting connection.");
+                ctx.close();
+                return;
+            }
+
             System.out.println("Client connected: " + ctx.channel().remoteAddress());
             String playerId = "Player" + (nextPlayerId++);
-            ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId);
+
+            // Назначаем цвет игроку
+            float[] assignedColor = assignPlayerColor(playerId);
+
+            ClientInfo clientInfo = new ClientInfo(ctx.channel(), playerId, GameServer.this);
             clients.put(playerId, clientInfo);
             channelToId.put(ctx.channel(), playerId);
+            playerColors.put(playerId, assignedColor);
 
-            System.out.println("Assigned ID: " + playerId + ", Total players: " + clients.size());
+            System.out.println("Assigned ID: " + playerId +
+                    ", Color: RGB(" + assignedColor[0] + "," + assignedColor[1] + "," + assignedColor[2] + ")" +
+                    ", Total players: " + clients.size());
+        }
+
+        private float[] assignPlayerColor(String playerId) {
+            int colorIndex = (nextPlayerId - 2) % COLOR_PALETTE.length;
+            return COLOR_PALETTE[colorIndex].clone();
         }
 
         @Override
@@ -149,6 +177,7 @@ public class GameServer {
             String playerId = channelToId.remove(ctx.channel());
             if (playerId != null) {
                 clients.remove(playerId);
+                playerColors.remove(playerId);
                 System.out.println("Client disconnected: " + playerId + ", Total players: " + clients.size());
             }
         }
@@ -160,14 +189,15 @@ public class GameServer {
         }
     }
 
-    private static class ClientInfo {
+    private class ClientInfo {
         private Channel channel;
         private String playerId;
+        private GameServer server;
         private int[][] maze;
         private int currentTileX, currentTileY;
         private int targetTileX, targetTileY;
         private float moveTime;
-        private float moveDuration = 0.05f;
+        private float moveDuration = 0.1f;
         private boolean isMoving;
         private Queue<int[]> moveQueue;
         private int[] currentMoveCommand;
@@ -175,11 +205,12 @@ public class GameServer {
         private int bounceDirection;
         private boolean rightPressed, leftPressed, upPressed, downPressed;
         private int score;
-        private String currentDirection = "RIGHT"; // ← ДОБАВЛЕНО ПОЛЕ
+        private String currentDirection = "RIGHT";
 
-        public ClientInfo(Channel channel, String playerId) {
+        public ClientInfo(Channel channel, String playerId, GameServer server) {
             this.channel = channel;
             this.playerId = playerId;
+            this.server = server;
             initializeMaze();
             this.currentTileX = 1;
             this.currentTileY = 1;
@@ -192,6 +223,15 @@ public class GameServer {
             this.bounceDirection = 1;
             this.score = 0;
             this.currentDirection = "RIGHT";
+        }
+
+        private boolean isPlayerAt(int x, int y) {
+            for (ClientInfo client : server.clients.values()) {
+                if (client != this && client.currentTileX == x && client.currentTileY == y) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void initializeMaze() {
@@ -242,7 +282,7 @@ public class GameServer {
                 default: return;
             }
 
-            if (!isWall(newX, newY)) {
+            if (!isWall(newX, newY) && !isPlayerAt(newX, newY)) {
                 addMoveCommand(newX, newY);
             }
         }
@@ -256,53 +296,53 @@ public class GameServer {
             if (isMoving) return;
 
             if (up && left && !right && !down) {
-                if (!isWall(currentTileX, currentTileY + 1)) {
+                if (!isWall(currentTileX, currentTileY + 1) && !isPlayerAt(currentTileX, currentTileY + 1)) {
                     addMoveCommand(currentTileX, currentTileY + 1);
-                    if (!isWall(currentTileX - 1, currentTileY + 1)) {
+                    if (!isWall(currentTileX - 1, currentTileY + 1) && !isPlayerAt(currentTileX - 1, currentTileY + 1)) {
                         addMoveCommand(currentTileX - 1, currentTileY + 1);
                     }
-                } else if (!isWall(currentTileX - 1, currentTileY)) {
+                } else if (!isWall(currentTileX - 1, currentTileY) && !isPlayerAt(currentTileX - 1, currentTileY)) {
                     addMoveCommand(currentTileX - 1, currentTileY);
                 }
             }
             else if (up && right && !left && !down) {
-                if (!isWall(currentTileX, currentTileY + 1)) {
+                if (!isWall(currentTileX, currentTileY + 1) && !isPlayerAt(currentTileX, currentTileY + 1)) {
                     addMoveCommand(currentTileX, currentTileY + 1);
-                    if (!isWall(currentTileX + 1, currentTileY + 1)) {
+                    if (!isWall(currentTileX + 1, currentTileY + 1) && !isPlayerAt(currentTileX + 1, currentTileY + 1)) {
                         addMoveCommand(currentTileX + 1, currentTileY + 1);
                     }
-                } else if (!isWall(currentTileX + 1, currentTileY)) {
+                } else if (!isWall(currentTileX + 1, currentTileY) && !isPlayerAt(currentTileX + 1, currentTileY)) {
                     addMoveCommand(currentTileX + 1, currentTileY);
                 }
             }
             else if (down && left && !up && !right) {
-                if (!isWall(currentTileX, currentTileY - 1)) {
+                if (!isWall(currentTileX, currentTileY - 1) && !isPlayerAt(currentTileX, currentTileY - 1)) {
                     addMoveCommand(currentTileX, currentTileY - 1);
-                    if (!isWall(currentTileX - 1, currentTileY - 1)) {
+                    if (!isWall(currentTileX - 1, currentTileY - 1) && !isPlayerAt(currentTileX - 1, currentTileY - 1)) {
                         addMoveCommand(currentTileX - 1, currentTileY - 1);
                     }
-                } else if (!isWall(currentTileX - 1, currentTileY)) {
+                } else if (!isWall(currentTileX - 1, currentTileY) && !isPlayerAt(currentTileX - 1, currentTileY)) {
                     addMoveCommand(currentTileX - 1, currentTileY);
                 }
             }
             else if (down && right && !up && !left) {
-                if (!isWall(currentTileX, currentTileY - 1)) {
+                if (!isWall(currentTileX, currentTileY - 1) && !isPlayerAt(currentTileX, currentTileY - 1)) {
                     addMoveCommand(currentTileX, currentTileY - 1);
-                    if (!isWall(currentTileX + 1, currentTileY - 1)) {
+                    if (!isWall(currentTileX + 1, currentTileY - 1) && !isPlayerAt(currentTileX + 1, currentTileY - 1)) {
                         addMoveCommand(currentTileX + 1, currentTileY - 1);
                     }
-                } else if (!isWall(currentTileX + 1, currentTileY)) {
+                } else if (!isWall(currentTileX + 1, currentTileY) && !isPlayerAt(currentTileX + 1, currentTileY)) {
                     addMoveCommand(currentTileX + 1, currentTileY);
                 }
             }
             else {
-                if (up && !isWall(currentTileX, currentTileY + 1)) {
+                if (up && !isWall(currentTileX, currentTileY + 1) && !isPlayerAt(currentTileX, currentTileY + 1)) {
                     addMoveCommand(currentTileX, currentTileY + 1);
-                } else if (down && !isWall(currentTileX, currentTileY - 1)) {
+                } else if (down && !isWall(currentTileX, currentTileY - 1) && !isPlayerAt(currentTileX, currentTileY - 1)) {
                     addMoveCommand(currentTileX, currentTileY - 1);
-                } else if (left && !isWall(currentTileX - 1, currentTileY)) {
+                } else if (left && !isWall(currentTileX - 1, currentTileY) && !isPlayerAt(currentTileX - 1, currentTileY)) {
                     addMoveCommand(currentTileX - 1, currentTileY);
-                } else if (right && !isWall(currentTileX + 1, currentTileY)) {
+                } else if (right && !isWall(currentTileX + 1, currentTileY) && !isPlayerAt(currentTileX + 1, currentTileY)) {
                     addMoveCommand(currentTileX + 1, currentTileY);
                 }
             }
@@ -319,12 +359,12 @@ public class GameServer {
 
                 if (!isMoving && moveQueue.isEmpty()) {
                     int nextX = currentTileX + bounceDirection;
-                    if (nextX >= 1 && nextX <= 21 && !isWall(nextX, currentTileY)) {
+                    if (nextX >= 1 && nextX <= 21 && !isWall(nextX, currentTileY) && !isPlayerAt(nextX, currentTileY)) {
                         addMoveCommand(nextX, currentTileY);
                     } else {
                         bounceDirection *= -1;
                         nextX = currentTileX + bounceDirection;
-                        if (!isWall(nextX, currentTileY)) {
+                        if (!isWall(nextX, currentTileY) && !isPlayerAt(nextX, currentTileY)) {
                             addMoveCommand(nextX, currentTileY);
                         }
                     }
@@ -335,12 +375,12 @@ public class GameServer {
 
                 if (!isMoving && moveQueue.isEmpty()) {
                     int nextY = currentTileY + bounceDirection;
-                    if (nextY >= 1 && nextY <= 20 && !isWall(currentTileX, nextY)) {
+                    if (nextY >= 1 && nextY <= 20 && !isWall(currentTileX, nextY) && !isPlayerAt(currentTileX, nextY)) {
                         addMoveCommand(currentTileX, nextY);
                     } else {
                         bounceDirection *= -1;
                         nextY = currentTileY + bounceDirection;
-                        if (!isWall(currentTileX, nextY)) {
+                        if (!isWall(currentTileX, nextY) && !isPlayerAt(currentTileX, nextY)) {
                             addMoveCommand(currentTileX, nextY);
                         }
                     }
@@ -376,7 +416,6 @@ public class GameServer {
                 moveTime = 0;
                 isMoving = true;
 
-                // Определяем направление движения
                 if (targetTileX > currentTileX) {
                     currentDirection = "RIGHT";
                 } else if (targetTileX < currentTileX) {
@@ -401,8 +440,13 @@ public class GameServer {
                 moveTime += delta;
 
                 if (moveTime >= moveDuration) {
-                    currentTileX = targetTileX;
-                    currentTileY = targetTileY;
+                    if (!isPlayerAt(targetTileX, targetTileY)) {
+                        currentTileX = targetTileX;
+                        currentTileY = targetTileY;
+                    } else {
+                        moveQueue.clear();
+                    }
+
                     isMoving = false;
 
                     if (isBouncingMode) {
@@ -420,23 +464,23 @@ public class GameServer {
 
             if (onlyHorizontal && rightPressed && leftPressed) {
                 int nextX = currentTileX + bounceDirection;
-                if (nextX >= 1 && nextX <= 21 && !isWall(nextX, currentTileY)) {
+                if (nextX >= 1 && nextX <= 21 && !isWall(nextX, currentTileY) && !isPlayerAt(nextX, currentTileY)) {
                     addMoveCommand(nextX, currentTileY);
                 } else {
                     bounceDirection *= -1;
                     nextX = currentTileX + bounceDirection;
-                    if (!isWall(nextX, currentTileY)) {
+                    if (!isWall(nextX, currentTileY) && !isPlayerAt(nextX, currentTileY)) {
                         addMoveCommand(nextX, currentTileY);
                     }
                 }
             } else if (onlyVertical && upPressed && downPressed) {
                 int nextY = currentTileY + bounceDirection;
-                if (nextY >= 1 && nextY <= 20 && !isWall(currentTileX, nextY)) {
+                if (nextY >= 1 && nextY <= 20 && !isWall(currentTileX, nextY) && !isPlayerAt(currentTileX, nextY)) {
                     addMoveCommand(currentTileX, nextY);
                 } else {
                     bounceDirection *= -1;
                     nextY = currentTileY + bounceDirection;
-                    if (!isWall(currentTileX, nextY)) {
+                    if (!isWall(currentTileX, nextY) && !isPlayerAt(currentTileX, nextY)) {
                         addMoveCommand(currentTileX, nextY);
                     }
                 }
